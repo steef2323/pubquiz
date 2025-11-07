@@ -165,7 +165,7 @@ export default function QuizJoinPage() {
           <div className="disco-ball mb-8 mx-auto"></div>
           <h2 className="text-gradient text-2xl mb-4">Welcome, {participantName}!</h2>
           <p className="text-secondary mb-8">
-            You've joined the quiz. Waiting for the host to start...
+            You&apos;ve joined the quiz. Waiting for the host to start...
           </p>
           <div className="pulse">
             <div className="text-accent text-4xl mb-4">🎉</div>
