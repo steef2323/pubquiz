@@ -118,7 +118,7 @@ export default function QuizHostPage() {
 
     socket.on('connect_error', (error) => {
       console.error('[Host] Socket connection error:', error);
-      setError('Failed to connect to server. Make sure you are running "npm run dev" (not "next dev")');
+      setError('Failed to connect to server. Please check your connection and try again. If the problem persists, contact support.');
     });
 
     socket.on('disconnect', () => {
