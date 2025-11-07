@@ -132,7 +132,8 @@ export async function GET(request: NextRequest) {
       participantIds.forEach((id) => {
         const user = allUsers.find((u: any) => u.id === id);
         if (user) {
-          participants[id] = user.fields?.Name || 'Unknown';
+          const name = user.fields?.Name;
+          participants[id] = typeof name === 'string' ? name : 'Unknown';
         }
       });
     }
