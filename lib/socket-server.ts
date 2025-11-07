@@ -22,7 +22,10 @@ function initializeSocket(server: HTTPServerType) {
     },
   });
 
-  io.on('connection', (socket) => {
+  // Store reference to io for use in closures (TypeScript knows it's not null here)
+  const ioInstance = io;
+
+  ioInstance.on('connection', (socket) => {
     console.log('[Socket] Client connected:', socket.id);
 
     // Join a quiz session room
@@ -42,14 +45,14 @@ function initializeSocket(server: HTTPServerType) {
       const { sessionId, participant } = data;
       console.log(`[Socket] Participant ${participant.name} joined session ${sessionId}`);
       // Broadcast to all clients in the session (including host)
-      io.to(sessionId).emit('participant-joined', participant);
+      ioInstance.to(sessionId).emit('participant-joined', participant);
     });
 
     // Host starts quiz
     socket.on('start-quiz', (sessionId: string) => {
       console.log(`[Socket] Quiz started for session ${sessionId}`);
       // Broadcast to all participants in the session
-      io.to(sessionId).emit('quiz-started');
+      ioInstance.to(sessionId).emit('quiz-started');
     });
 
     // Participant submits answer
