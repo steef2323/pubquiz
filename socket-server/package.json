@@ -1,0 +1,20 @@
+{
+  "name": "quiz-socket-server",
+  "version": "1.0.0",
+  "description": "Standalone Socket.io server for QuizWeb real-time features",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.8.1",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
