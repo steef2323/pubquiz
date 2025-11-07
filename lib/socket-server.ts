@@ -1,12 +1,14 @@
 // Socket.io server setup for Next.js
 // This will be used in a custom server or API route
 
-const { Server: SocketIOServer } = require('socket.io');
-const { Server: HTTPServer } = require('http');
+import type { Server as SocketIOServerType } from 'socket.io';
+import { Server as SocketIOServer } from 'socket.io';
+import type { Server as HTTPServerType } from 'http';
+import { Server as HTTPServer } from 'http';
 
-let io: SocketIOServer | null = null;
+let io: SocketIOServerType | null = null;
 
-function initializeSocket(server: HTTPServer) {
+function initializeSocket(server: HTTPServerType) {
   if (io) {
     return io;
   }
@@ -70,5 +72,7 @@ function getIO() {
   return io;
 }
 
+export { initializeSocket, getIO };
+// Also export as CommonJS for compatibility with server.js
 module.exports = { initializeSocket, getIO };
 
