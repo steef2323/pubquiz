@@ -22,6 +22,9 @@ export default function QuizHostPage() {
   const [error, setError] = useState('');
   const socketRef = useRef<Socket | null>(null);
   const [quizStarted, setQuizStarted] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(false);
+  const retryCountRef = useRef(0);
+  const maxRetries = 3;
 
   // Generate unique session ID and create quiz session
   useEffect(() => {
@@ -103,87 +106,155 @@ export default function QuizHostPage() {
     const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 
       (typeof window !== 'undefined' ? window.location.origin : '');
     
-    const socket = io(socketUrl, {
-      path: '/api/socket',
-      transports: ['websocket', 'polling'],
-    });
-
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      console.log('[Host] Connected to Socket.io, socket ID:', socket.id);
-      socket.emit('join-session', sessionId);
-      console.log('[Host] Emitted join-session for:', sessionId);
-    });
-
-    socket.on('connect_error', (error) => {
-      console.error('[Host] Socket connection error:', error);
-      setError('Failed to connect to server. Please check your connection and try again. If the problem persists, contact support.');
-    });
-
-    socket.on('disconnect', () => {
-      console.log('[Host] Disconnected from Socket.io');
-    });
-
-    // Listen for participant joins
-    socket.on('participant-joined', (participant: Participant) => {
-      console.log('[Host] Participant joined event received:', participant);
-      setParticipants((prev) => {
-        // Check if participant already exists
-        const exists = prev.find((p) => p.id === participant.id);
-        if (exists) {
-          console.log('[Host] Participant already in list, skipping');
-          return prev;
-        }
-        console.log('[Host] Adding new participant to list');
-        return [...prev, participant];
+    const connectSocket = () => {
+      const socket = io(socketUrl, {
+        path: '/api/socket',
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: maxRetries,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 10000,
       });
-    });
 
-    // Debug: Log all socket events
-    socket.onAny((event, ...args) => {
-      console.log('[Host] Socket event received:', event, args);
-    });
+      socketRef.current = socket;
 
-    socket.on('participant-left', (participantId: string) => {
-      console.log('[Host] Participant left:', participantId);
-      setParticipants((prev) => prev.filter((p) => p.id !== participantId));
-    });
+      socket.on('connect', () => {
+        console.log('[Host] Connected to Socket.io, socket ID:', socket.id);
+        setSocketConnected(true);
+        retryCountRef.current = 0;
+        socket.emit('join-session', sessionId);
+        console.log('[Host] Emitted join-session for:', sessionId);
+      });
+
+      socket.on('connect_error', (error) => {
+        console.error('[Host] Socket connection error:', error);
+        setSocketConnected(false);
+        retryCountRef.current += 1;
+        
+        // Only show error after max retries and don't block the UI
+        if (retryCountRef.current >= maxRetries) {
+          console.warn('[Host] Socket.io connection failed after retries. Real-time features may be limited, but the quiz can still function.');
+          // Don't set error state - allow the app to continue without WebSocket
+        }
+      });
+
+      socket.on('reconnect_attempt', () => {
+        console.log('[Host] Attempting to reconnect to Socket.io...');
+      });
+
+      socket.on('reconnect_failed', () => {
+        console.warn('[Host] Socket.io reconnection failed. Real-time features unavailable.');
+        setSocketConnected(false);
+      });
+
+      socket.on('disconnect', () => {
+        console.log('[Host] Disconnected from Socket.io');
+        setSocketConnected(false);
+      });
+
+      // Listen for participant joins
+      socket.on('participant-joined', (participant: Participant) => {
+        console.log('[Host] Participant joined event received:', participant);
+        setParticipants((prev) => {
+          // Check if participant already exists
+          const exists = prev.find((p) => p.id === participant.id);
+          if (exists) {
+            console.log('[Host] Participant already in list, skipping');
+            return prev;
+          }
+          console.log('[Host] Adding new participant to list');
+          return [...prev, participant];
+        });
+      });
+
+      // Debug: Log all socket events
+      socket.onAny((event, ...args) => {
+        console.log('[Host] Socket event received:', event, args);
+      });
+
+      socket.on('participant-left', (participantId: string) => {
+        console.log('[Host] Participant left:', participantId);
+        setParticipants((prev) => prev.filter((p) => p.id !== participantId));
+      });
+    };
+
+    connectSocket();
 
     return () => {
-      socket.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
     };
   }, [sessionId, quizId]);
 
-  const handleStartQuiz = async () => {
-    if (socketRef.current) {
-      // Update session status to Active
-      try {
-        const token = localStorage.getItem('auth_token');
-        if (token) {
-          await fetch('/api/sessions/update', {
-            method: 'PUT',
+  // Poll for participants if WebSocket is not connected
+  useEffect(() => {
+    if (!socketConnected && sessionId) {
+      const pollParticipants = async () => {
+        try {
+          const token = localStorage.getItem('auth_token');
+          if (!token) return;
+
+          // Fetch participants from API
+          const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/participants`, {
             headers: {
-              'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`,
             },
-            body: JSON.stringify({
-              sessionId,
-              Status: 'Active',
-              'Started at': new Date().toISOString(),
-              token,
-            }),
           });
-        }
-      } catch (err) {
-        console.error('[Host] Error updating session status:', err);
-      }
 
-      socketRef.current.emit('start-quiz', sessionId);
-      setQuizStarted(true);
-      // Navigate to question display page
-      router.push(`/quiz/${quizId}/host/play?session=${sessionId}`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.participants) {
+              setParticipants(data.participants);
+            }
+          }
+        } catch (err) {
+          console.error('[Host] Error polling participants:', err);
+        }
+      };
+
+      // Poll immediately and then every 3 seconds
+      pollParticipants();
+      const interval = setInterval(pollParticipants, 3000);
+
+      return () => clearInterval(interval);
     }
+  }, [socketConnected, sessionId]);
+
+  const handleStartQuiz = async () => {
+    // Update session status to Active
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        await fetch('/api/sessions/update', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            sessionId,
+            Status: 'Active',
+            'Started at': new Date().toISOString(),
+            token,
+          }),
+        });
+      }
+    } catch (err) {
+      console.error('[Host] Error updating session status:', err);
+    }
+
+    // Emit start-quiz event if socket is connected
+    if (socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit('start-quiz', sessionId);
+    } else {
+      console.warn('[Host] Socket not connected, quiz start event not broadcasted via WebSocket');
+    }
+
+    setQuizStarted(true);
+    // Navigate to question display page
+    router.push(`/quiz/${quizId}/host/play?session=${sessionId}`);
   };
 
   if (loading) {
@@ -222,6 +293,13 @@ export default function QuizHostPage() {
           <p className="text-secondary text-center mb-8">
             Share the QR code below for participants to join
           </p>
+
+          {/* Connection Status Indicator */}
+          {!socketConnected && (
+            <div className="mb-4 p-3 bg-yellow-500/20 border border-yellow-500 rounded-party-md text-yellow-300 text-sm text-center">
+              ⚠️ Real-time connection unavailable. Participant updates may be delayed.
+            </div>
+          )}
 
           {/* QR Code */}
           <div className="flex justify-center mb-8">

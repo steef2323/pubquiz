@@ -98,7 +98,9 @@ Visit `http://localhost:3000/api/test-airtable` to test your Airtable connection
    ```
    AIRTABLE_API_KEY=your_airtable_api_key_here
    AIRTABLE_BASE_ID=appy4uBo89IidbgYL
+   NEXT_PUBLIC_SOCKET_URL=https://your-socket-server.railway.app
    ```
+   **Note**: `NEXT_PUBLIC_SOCKET_URL` should point to your separate Socket.io server (see Socket.io Server Setup below).
 
 3. **Set Up Vercel Blob Storage** (for image uploads):
    - In your Vercel project dashboard, go to **Storage** tab
@@ -110,6 +112,23 @@ Visit `http://localhost:3000/api/test-airtable` to test your Airtable connection
 4. **Deploy**:
    - Vercel will automatically deploy on every push to your main branch
    - Or click **Deploy** in the dashboard
+
+### Socket.io Server Setup (Required for Real-time Features)
+
+**Important**: Vercel's serverless functions don't support persistent WebSocket connections. You need to deploy a separate Socket.io server.
+
+The standalone server is in the `socket-server/` directory. See [socket-server/README.md](socket-server/README.md) for detailed deployment instructions.
+
+**Quick Setup (Railway - Recommended)**:
+
+1. Go to [railway.app](https://railway.app) and create a new project
+2. Deploy the `socket-server/` directory
+3. Set environment variable: `ALLOWED_ORIGINS=https://your-vercel-app.vercel.app`
+4. Copy the Railway URL and set it as `NEXT_PUBLIC_SOCKET_URL` in Vercel
+
+**Alternative Platforms**: Render, DigitalOcean, or any platform that supports persistent Node.js servers.
+
+Without the Socket.io server, the app will fall back to polling (3-second delay for participant updates) but will still function.
 
 ### Image Uploads
 

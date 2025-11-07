@@ -11,6 +11,7 @@ interface Question {
   questionType: 'text' | 'image' | 'video';
   answerType: 'multiple choice' | 'estimation';
   answers: string[];
+  correctAnswer?: string; // "A", "B", "C", or "D" for multiple choice
   image?: File | null;
   video?: File | null;
   imageUrl?: string;
@@ -128,6 +129,7 @@ function CreateQuizPageContent() {
               questionType: (q.questionType || 'text') as 'text' | 'image' | 'video',
               answerType: (q.answerType || 'multiple choice') as 'multiple choice' | 'estimation',
               answers: answers,
+              correctAnswer: q.correctAnswer || undefined,
               order: q.order !== undefined ? q.order : idx,
               imageUrl: q.imageUrl,
               videoUrl: q.videoUrl,
@@ -146,6 +148,7 @@ function CreateQuizPageContent() {
               type: q.questionType,
               answerType: q.answerType,
               answers: q.answers,
+              correctAnswer: q.correctAnswer,
               imageUrl: q.imageUrl,
               videoUrl: q.videoUrl,
             });
@@ -319,12 +322,22 @@ function CreateQuizPageContent() {
             questionData[answerKey] = (answers[i] || '').trim();
           }
           
+          // Save correct answer (A, B, C, or D) if specified
+          if (question.correctAnswer) {
+            questionData['Correct answer'] = question.correctAnswer.toUpperCase();
+          }
+          
           // Clear estimation answer field when using multiple choice
           questionData['Estimation answer'] = '';
         } else if (question.answerType === 'estimation') {
           // For estimation, save to "Estimation answer" field
           const estimationAnswer = question.answers[0] || '';
           questionData['Estimation answer'] = estimationAnswer.trim();
+          
+          // For estimation, save the numeric answer to "Correct answer" field
+          if (estimationAnswer.trim()) {
+            questionData['Correct answer'] = estimationAnswer.trim();
+          }
           
           // Clear multiple choice fields if switching to estimation
           questionData['Question answer A'] = '';
@@ -411,6 +424,7 @@ function CreateQuizPageContent() {
             type: question.questionType,
             answerType: question.answerType,
             answers: question.answers,
+            correctAnswer: question.correctAnswer,
             imageUrl: question.imageUrl,
             videoUrl: question.videoUrl,
           });
@@ -435,6 +449,7 @@ function CreateQuizPageContent() {
           type: question.questionType,
           answerType: question.answerType,
           answers: question.answers,
+          correctAnswer: question.correctAnswer,
           imageUrl: question.imageUrl,
           videoUrl: question.videoUrl,
         });
@@ -463,6 +478,7 @@ function CreateQuizPageContent() {
         type: question.questionType,
         answerType: question.answerType,
         answers: question.answers,
+        correctAnswer: question.correctAnswer,
         imageUrl: question.imageUrl,
         videoUrl: question.videoUrl,
       });
@@ -496,6 +512,7 @@ function CreateQuizPageContent() {
     type: q.questionType,
     answerType: q.answerType,
     answers: q.answers,
+    correctAnswer: q.correctAnswer,
     imageUrl: q.imageUrl,
     videoUrl: q.videoUrl,
   })).join('|'), saveQuestion]);
@@ -597,6 +614,7 @@ function CreateQuizPageContent() {
       if (updates.answerType && updates.answerType !== currentQuestion.answerType) {
         if (updates.answerType === 'estimation') {
           updates.answers = [currentQuestion.answers[0] || ''];
+          updates.correctAnswer = undefined; // Clear correct answer for estimation
         } else if (updates.answerType === 'multiple choice') {
           // Ensure we have 4 answer slots
           const newAnswers = [...currentQuestion.answers];
@@ -604,12 +622,79 @@ function CreateQuizPageContent() {
             newAnswers.push('');
           }
           updates.answers = newAnswers.slice(0, 4);
+          // Don't clear correctAnswer when switching to multiple choice - keep it if it exists
         }
       }
       
       updated[index] = { ...updated[index], ...updates, isSaved: false };
       return updated;
     });
+  };
+
+  const updateCorrectAnswer = (questionIndex: number, correctAnswer: string) => {
+    setQuestions((prev) => {
+      const updated = [...prev];
+      updated[questionIndex] = { ...updated[questionIndex], correctAnswer, isSaved: false };
+      return updated;
+    });
+  };
+
+  const handleDeleteQuestion = async (questionIndex: number) => {
+    const question = questions[questionIndex];
+    
+    // If question has an ID, delete from Airtable
+    if (question.id) {
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required to delete question');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/questions/delete', {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            questionId: question.id,
+            token,
+          }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to delete question');
+        }
+
+        console.log('[handleDeleteQuestion] Question deleted from Airtable:', question.id);
+      } catch (err: any) {
+        console.error('Error deleting question:', err);
+        setError(err.message || 'Failed to delete question');
+        return; // Don't remove from UI if deletion failed
+      }
+    }
+
+    // Remove from local state
+    setQuestions((prev) => {
+      const updated = [...prev];
+      updated.splice(questionIndex, 1);
+      return updated;
+    });
+
+    // Remove from saved content hash
+    savedContentRef.current.delete(questionIndex);
+    
+    // Update indices for remaining questions in saved content hash
+    const newMap = new Map<number, string>();
+    savedContentRef.current.forEach((value, key) => {
+      if (key < questionIndex) {
+        newMap.set(key, value);
+      } else if (key > questionIndex) {
+        newMap.set(key - 1, value);
+      }
+    });
+    savedContentRef.current = newMap;
   };
 
   const updateAnswer = (questionIndex: number, answerIndex: number, value: string) => {
@@ -727,14 +812,13 @@ function CreateQuizPageContent() {
             className="input mb-4"
             placeholder="Quiz Name"
           />
-          <div className="flex gap-4">
-            <button onClick={handleSaveQuiz} disabled={saving} className="btn btn-primary">
-              {saving ? 'Saving...' : 'Save Quiz'}
-            </button>
-            <Link href="/quizzes" className="btn btn-secondary">
-              Cancel
-            </Link>
-          </div>
+          {questions.length > 0 && (
+            <div className="flex gap-4">
+              <Link href="/quizzes" className="btn btn-secondary">
+                Cancel
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* Questions List */}
@@ -798,6 +882,13 @@ function CreateQuizPageContent() {
                   {question.isSaved && !question.isSaving && (
                     <span className="text-sm text-green-400 save-success-badge">✓ Saved</span>
                   )}
+                  <button
+                    onClick={() => handleDeleteQuestion(questionIndex)}
+                    className="btn btn-secondary text-red-400 hover:text-red-300 hover:bg-red-900/20 px-3 py-1 text-sm"
+                    title="Delete question"
+                  >
+                    🗑️ Delete
+                  </button>
                 </div>
               </div>
 
@@ -888,16 +979,32 @@ function CreateQuizPageContent() {
               {question.answerType === 'multiple choice' ? (
                 <div className="space-y-3">
                   <label className="block text-secondary mb-2">Answer Options</label>
-                  {question.answers.map((answer, answerIndex) => (
-                    <input
-                      key={answerIndex}
-                      type="text"
-                      value={answer}
-                      onChange={(e) => updateAnswer(questionIndex, answerIndex, e.target.value)}
-                      className="input"
-                      placeholder={`Option ${String.fromCharCode(65 + answerIndex)}`}
-                    />
-                  ))}
+                  {question.answers.map((answer, answerIndex) => {
+                    const optionLetter = String.fromCharCode(65 + answerIndex); // A, B, C, D
+                    return (
+                      <div key={answerIndex} className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name={`correct-${questionIndex}`}
+                          checked={question.correctAnswer === optionLetter}
+                          onChange={() => updateCorrectAnswer(questionIndex, optionLetter)}
+                          className="w-5 h-5 text-accent"
+                        />
+                        <input
+                          type="text"
+                          value={answer}
+                          onChange={(e) => updateAnswer(questionIndex, answerIndex, e.target.value)}
+                          className="input flex-1"
+                          placeholder={`Option ${optionLetter}`}
+                        />
+                      </div>
+                    );
+                  })}
+                  {!question.correctAnswer && (
+                    <p className="text-sm text-yellow-400 mt-2">
+                      ⚠ Select the correct answer by clicking the radio button next to one of the options
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div>
@@ -921,6 +1028,20 @@ function CreateQuizPageContent() {
             + Add Question
           </button>
         </div>
+
+        {/* Save Button at Bottom - Only show when there are questions */}
+        {questions.length > 0 && (
+          <div className="mt-8 card sticky bottom-4 z-10">
+            <div className="flex gap-4 justify-end">
+              <Link href="/quizzes" className="btn btn-secondary">
+                Cancel
+              </Link>
+              <button onClick={handleSaveQuiz} disabled={saving} className="btn btn-primary">
+                {saving ? 'Saving...' : 'Save Quiz'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );

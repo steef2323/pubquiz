@@ -217,6 +217,10 @@ export async function updateQuestion(questionId: string, questionData: Partial<Q
   return updatedRecord;
 }
 
+export async function deleteQuestion(questionId: string): Promise<void> {
+  await getBase()(TABLES.QUESTIONS).destroy([questionId]);
+}
+
 export async function getQuizById(quizId: string): Promise<QuizRecord | null> {
   try {
     const record = await getBase()(TABLES.QUIZ).find(quizId);
